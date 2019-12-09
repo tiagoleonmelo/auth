@@ -1,0 +1,4 @@
+Isto e um novo teste
+Tudo deveria funcionar
+Ha acordo de algoritmos
+Ha rotaçao de chaves
