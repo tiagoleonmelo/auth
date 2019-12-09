@@ -32,6 +32,17 @@ def check_validity(filename):
 
     return start < curr < end
 
+def check_validity_content(content):
+
+    cert = x509.load_pem_x509_certificate(content, default_backend())
+
+    start = cert.not_valid_before
+    end = cert.not_valid_after
+    curr = datetime.now()
+
+    return start < curr < end
+
+
 
 def store_cert(filename, d):
     cert_file = open(filename, "rb")

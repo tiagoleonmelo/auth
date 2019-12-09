@@ -1,3 +1,5 @@
+Nota prevista: 20
+
 O Cliente envia um certificado quando se liga ao servidor
 O servidor autentica o certificado
 
@@ -7,7 +9,7 @@ O servidor precisa do cert e da chave privada associada ao cert
 Challenge
 
 
-CA GENERATED WITH https://gist.github.com/major/8ac9f98ae8b07f46b208
+
 
 CERT FROM CA GENERATED WITH
 https://stackoverflow.com/questions/56285000/python-cryptography-create-a-certificate-signed-by-an-existing-ca-and-export

@@ -14,6 +14,8 @@ from cryptography.hazmat.primitives.asymmetric import padding
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat, load_pem_public_key
 
 from encrypt_decrypt_funcs import *
+from check_validity import *
+from cryptography.x509.oid import NameOID
 
 logger = logging.getLogger('root')
 
@@ -50,6 +52,11 @@ class ClientProtocol(asyncio.Protocol):
         self.password = 'password'
         self.auth_method = USERNAME_PWD
 
+        with open("certs/ca_cert.pem", "rb") as ca:
+            pem_data = ca.read()
+            self.trusted_cas = [x509.load_pem_x509_certificate(pem_data, default_backend())]
+
+
     def connection_made(self, transport) -> None:
         """
         Called when the client connects.
@@ -62,7 +69,7 @@ class ClientProtocol(asyncio.Protocol):
         logger.debug('Connected to Server')
         
         self.state = STATE_HANDSHAKE
-        message = {'type':'HANDSHAKE', 'method':self.auth_method}
+        message = {'type':'HANDSHAKE', 'method': self.auth_method}
 
         self._send(message)
 
@@ -159,22 +166,49 @@ class ClientProtocol(asyncio.Protocol):
             self._send(reply)
             return
 
-        elif mtype == 'CHALLENGE_REP':
+        elif mtype == 'CERT':
 
-            signature = base64.b64decode(message['signature'].encode())
-            server_pub_key = load_pem_public_key(base64.b64decode(message['public_key'].encode()), backend=default_backend())
+            ## Validate the cert received
+            server_cert_b = base64.b64decode(message['server_cert'].encode())
+            server_cert = x509.load_pem_x509_certificate(server_cert_b, default_backend())
+            server_key = load_pem_public_key(base64.b64decode(message['server_key'].encode()), backend=default_backend())
 
-            server_pub_key.verify(
-                signature,
-                self.value.encode(),
-                padding.PSS(
-                mgf=padding.MGF1(hashes.SHA256()),
-                salt_length=padding.PSS.MAX_LENGTH
-            ), hashes.SHA256())
+            
+            ## Check if is within viable date
+            if not check_validity_content(server_cert_b):
+                logger.error("Invalid certificate")
+                return False
+            
 
-            # Program will crash if verify doesn't work
-            logger.debug('Signature validated.')
+            ## Check cert issuer
+            if server_cert.issuer != self.trusted_cas[0].issuer:
+                ## In a real world scenario we would here make a recursive call for more certs
+                logger.error("Invalid issuer")
+                logger.debug(server_cert.issuer)
+                logger.debug(self.trusted_cas[0].issuer)
+                return False
 
+
+            ## Check cert signature
+            issuer_public_key = load_pem_public_key(self.trusted_cas[0].public_key().public_bytes(Encoding.PEM, PublicFormat.SubjectPublicKeyInfo), default_backend())
+            cert_to_check = x509.load_pem_x509_certificate(server_cert_b, default_backend())
+            issuer_public_key.verify(
+                cert_to_check.signature,
+                cert_to_check.tbs_certificate_bytes,
+                # Depends on the algorithm used to create the certificate
+                padding.PKCS1v15(),
+                cert_to_check.signature_hash_algorithm,
+            )
+
+
+            ## Check if name on cert matches name of the server
+            if server_cert.subject.get_attributes_for_oid(NameOID.COMMON_NAME)[0].value != message['server_name']:
+                print(server_cert.subject.get_attributes_for_oid(NameOID.COMMON_NAME[0]))
+                logger.error("Invalid name")
+                return False
+
+
+            logger.debug("Server validated")
 
             # Once the server has been validated, we can proceed to the file transfer
             message = {'type': 'OPEN', 'file_name': self.file_name}
@@ -223,7 +257,7 @@ class ClientProtocol(asyncio.Protocol):
     
     def challenge(self):
         self.value = str(datetime.now()) + str(random())
-        message = {'type':'CHALLENGE_REQ', 'value':self.value}
+        message = {'type':'CERT_REQ'}
 
         self._send(message)
         self.state = STATE_AUTH

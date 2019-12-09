@@ -15,6 +15,9 @@ from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.asymmetric import padding, rsa
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat, load_pem_public_key
 from cryptography.hazmat.backends import default_backend
+from cryptography.hazmat.primitives import serialization
+from cryptography import x509
+
 logger = logging.getLogger('root')
 
 STATE_CONNECT = 0
@@ -50,14 +53,13 @@ class ClientHandler(asyncio.Protocol):
 		# access list that contains the usernames allowed to interact with the system
 		self.access_list = ['tiago']
 
-		self.auth_private_key = rsa.generate_private_key(
-			public_exponent=65537,
-			key_size=2048,
-			backend=default_backend()
-		)
-		self.auth_public_key = self.auth_private_key.public_key()
+		c = open("certs/server_cert.pem", "rb")
+		pem_data = c.read()
+		self.cert = x509.load_pem_x509_certificate(pem_data, default_backend())
+		c.close()
 
 		self.auth_method = None
+		self.name = 'My Server'
 
 	def connection_made(self, transport) -> None:
 		"""
@@ -126,7 +128,7 @@ class ClientHandler(asyncio.Protocol):
 			ret = self.process_close(message)
 		elif mtype == 'CHALLENGE_REP':
 			ret = self.process_challenge(message)
-		elif mtype == 'CHALLENGE_REQ':
+		elif mtype == 'CERT_REQ':
 			ret = self.reply_to_challenge(message)
 		elif mtype == 'ACCESS_REQ':
 			ret = self.process_access(message)
@@ -282,22 +284,12 @@ class ClientHandler(asyncio.Protocol):
 
 	def reply_to_challenge(self, message: str) -> None:
 		# Sign the challenge and send it back to the client
-		
-		rand_val = message['value'].encode()
-
-		signature = self.auth_private_key.sign(
-						rand_val,
-						padding.PSS(
-						mgf=padding.MGF1(hashes.SHA256()),
-						salt_length=padding.PSS.MAX_LENGTH
-					),
-					hashes.SHA256()
-					)
 
 		reply = {
-					'type':'CHALLENGE_REP',
-					'signature':base64.b64encode(signature).decode(),
-					'public_key':base64.b64encode(self.auth_public_key.public_bytes(Encoding.PEM, PublicFormat.SubjectPublicKeyInfo)).decode()
+					'type':'CERT',
+					'server_cert':base64.b64encode(self.cert.public_bytes(Encoding.PEM)).decode(),
+					'server_key':base64.b64encode(self.cert.public_key().public_bytes(Encoding.PEM, PublicFormat.SubjectPublicKeyInfo)).decode(),
+					'server_name':self.name
 				}
 		
 		self._send(reply)

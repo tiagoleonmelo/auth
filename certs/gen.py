@@ -35,14 +35,14 @@ root_cert = x509.CertificateBuilder().subject_name(
 ).sign(root_key, hashes.SHA256(), default_backend())
 
 # Write root_key, root_cert to files
-with open("ca.key", "wb") as f:
+with open("ca_key.pem", "wb") as f:
     f.write(root_key.private_bytes(
         encoding=serialization.Encoding.PEM,
         format=serialization.PrivateFormat.TraditionalOpenSSL,
         encryption_algorithm=serialization.BestAvailableEncryption(b"openstack-ansible")
     ))
 
-with open("ca.crt", "wb") as f:
+with open("ca_cert.pem", "wb") as f:
     f.write(root_cert.public_bytes(
         encoding=serialization.Encoding.PEM,
     ))
@@ -58,6 +58,7 @@ new_subject = x509.Name([
     x509.NameAttribute(NameOID.STATE_OR_PROVINCE_NAME, u"Texas"),
     x509.NameAttribute(NameOID.LOCALITY_NAME, u"Austin"),
     x509.NameAttribute(NameOID.ORGANIZATION_NAME, u"New Org Name!"),
+    x509.NameAttribute(NameOID.COMMON_NAME, u"My Server"),
 ])
 cert = x509.CertificateBuilder().subject_name(
     new_subject
@@ -77,14 +78,14 @@ datetime.datetime.utcnow() + datetime.timedelta(days=30)
 ).sign(root_key, hashes.SHA256(), default_backend())
 
 # Write cert_key, cert to files
-with open("server.key", "wb") as f:
+with open("server_key.pem", "wb") as f:
     f.write(cert_key.private_bytes(
         encoding=serialization.Encoding.PEM,
         format=serialization.PrivateFormat.TraditionalOpenSSL,
         encryption_algorithm=serialization.BestAvailableEncryption(b"openstack-ansible")
     ))
 
-with open("server.crt", "wb") as f:
+with open("server_cert.pem", "wb") as f:
     f.write(cert.public_bytes(
         encoding=serialization.Encoding.PEM,
     ))
