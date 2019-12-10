@@ -15,7 +15,7 @@ from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat,
 
 from encrypt_decrypt_funcs import *
 from check_validity import *
-from cryptography.x509.oid import NameOID
+from cryptography.x509.oid import ExtensionOID, NameOID
 
 logger = logging.getLogger('root')
 
@@ -55,6 +55,7 @@ class ClientProtocol(asyncio.Protocol):
         with open("certs/ca_cert.pem", "rb") as ca:
             pem_data = ca.read()
             self.trusted_cas = [x509.load_pem_x509_certificate(pem_data, default_backend())]
+            self.trusted_cas_b = [pem_data]
 
 
     def connection_made(self, transport) -> None:
@@ -135,6 +136,7 @@ class ClientProtocol(asyncio.Protocol):
                 if self.auth_method == USERNAME_PWD:
                     message = {'type':'ACCESS_REQ', 'user':'tiago'}
                 else:
+                    # TODO
                     message = {'type':'CC', 'value':'idk'}
                 self._send(message)
             else:
@@ -172,20 +174,36 @@ class ClientProtocol(asyncio.Protocol):
             server_cert_b = base64.b64decode(message['server_cert'].encode())
             server_cert = x509.load_pem_x509_certificate(server_cert_b, default_backend())
             server_key = load_pem_public_key(base64.b64decode(message['server_key'].encode()), backend=default_backend())
-
+            flag = False
             
             ## Check if is within viable date
             if not check_validity_content(server_cert_b):
-                logger.error("Invalid certificate")
+                logger.error("Server certificate validity date isn't valid")
+                self.transport.close()
                 return False
             
 
             ## Check cert issuer
             if server_cert.issuer != self.trusted_cas[0].issuer:
-                ## In a real world scenario we would here make a recursive call for more certs
+
+                ## In a real world scenario, we would here make a recursive call for more certs
                 logger.error("Invalid issuer")
                 logger.debug(server_cert.issuer)
                 logger.debug(self.trusted_cas[0].issuer)
+                self.transport.close()
+                return False
+
+
+            ## Here, we know that the server_cert.issuer is self.trusted_cas[0], so we can treat each one of them de forma indistinta
+            ## Check if issuer is a CA, basic constraint
+            for ext in self.trusted_cas[0].extensions:
+                if(ext.value.ca):
+                    logger.debug("Server certificate was issued by a CA")
+                    flag = True
+
+            if not flag:
+                logger.error("Server certificate wasn't issued by a Certification Authority")
+                self.transport.close()
                 return False
 
 
@@ -205,7 +223,33 @@ class ClientProtocol(asyncio.Protocol):
             if server_cert.subject.get_attributes_for_oid(NameOID.COMMON_NAME)[0].value != message['server_name']:
                 print(server_cert.subject.get_attributes_for_oid(NameOID.COMMON_NAME[0]))
                 logger.error("Invalid name")
+                self.transport.close()                
                 return False
+
+            
+            ## Validate if our CA is still a CA, if it's still valid within our date and if it isn't in its own CRL
+            if not check_validity_content(self.trusted_cas_b[0]):
+                logger.error("Our trusted CA isn't trustworthy anymore. Trust no one.")
+                self.trusted_cas.pop(0)
+                self.trusted_cas_b.pop(0)
+                self.transport.close()
+                return False
+
+            flag = False
+            # In this case, we are validating self.trusted_cas[0] as our trusted CA, and not as an issuer
+            for ext in self.trusted_cas[0].extensions:
+                if(ext.value.ca):
+                    flag = True
+
+            if not flag:
+                logger.error("Our trusted CA isn't trustworthy anymore. Trust no one.")
+                self.trusted_cas.pop(0)
+                self.trusted_cas_b.pop(0)
+                self.transport.close()
+                return False
+
+            
+            
 
 
             logger.debug("Server validated")

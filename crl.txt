@@ -1,0 +1,5 @@
+Para validar a Certificate Revogation List da nossa CA, foi executado o seguinte comando no terminal:
+
+	$ openssl x509 -noout -text -in ca_cert.pem | grep -A 4 'X509v3 CRL Distribution Points'
+
+Idealmente, devolveria um URI a partir do qual poderiamos obter a CRL de forma a verificar se a CA se encontra lá presente. Contudo, não devolveu nenhum output.

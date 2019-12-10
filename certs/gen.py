@@ -32,6 +32,9 @@ root_cert = x509.CertificateBuilder().subject_name(
     datetime.datetime.utcnow()
 ).not_valid_after(
     datetime.datetime.utcnow() + datetime.timedelta(days=3650)
+).add_extension(
+    x509.BasicConstraints(True, 0),
+    critical=False
 ).sign(root_key, hashes.SHA256(), default_backend())
 
 # Write root_key, root_cert to files

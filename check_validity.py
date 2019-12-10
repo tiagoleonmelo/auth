@@ -38,6 +38,8 @@ def check_validity_content(content):
 
     start = cert.not_valid_before
     end = cert.not_valid_after
+    print("Certificate start date: ", start)
+    print("Certificate end date: ", end)
     curr = datetime.now()
 
     return start < curr < end
