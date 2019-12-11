@@ -17,6 +17,11 @@ from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat,
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import serialization
 from cryptography import x509
+from cryptography.x509 import load_der_x509_certificate
+
+
+from PyKCS11 import *
+import binascii
 
 logger = logging.getLogger('root')
 
@@ -52,6 +57,10 @@ class ClientHandler(asyncio.Protocol):
 		self.hashed_list = {'tiago':'b109f3bbbc244eb82441917ed06d618b9008dd09b3befd1b5e07394c706a8bb980b1d7785e5976ec049b46df5f1326af5a2ea6d103fd07c95385ffab0cacbc86'}
 		# access list that contains the usernames allowed to interact with the system
 		self.access_list = ['tiago']
+		# access list that contains allowed citizens
+		self.cc_al = [153705604]
+		self.cc_public_key = {153705604:'publickey'}
+		self.cc_cert = ''
 
 		c = open("certs/server_cert.pem", "rb")
 		pem_data = c.read()
@@ -134,6 +143,10 @@ class ClientHandler(asyncio.Protocol):
 			ret = self.process_access(message)
 		elif mtype == 'HANDSHAKE':
 			ret = self.process_handshake(message)
+		elif mtype == 'CC':
+			ret = self.process_cc(message)
+		elif mtype == 'SIGNATURE':
+			ret = self.verify_signature(message)
 		else:
 			logger.warning("Invalid message type: {}".format(message['type']))
 			ret = False
@@ -171,9 +184,17 @@ class ClientHandler(asyncio.Protocol):
 			logger.warning("No filename in Open")
 			return False
 
-		if self.username not in self.access_list:
-			logger.error("Permission denied - User %s not in access list; can't transfer files" % self.username)
-			return False
+		if self.auth_method == USERNAME_PWD:
+
+			if self.username not in self.access_list:
+				logger.error("Permission denied - User %s not in access list; can't transfer files" % self.username)
+				return False
+
+		# else:
+
+		# 	if self.cc_cert.bi_num not in self.cc_al:
+		# 		logger.error("Permission denied - Citizen no %s not in access list; can't transfer files" % self.cc_cert.bi_num)
+		# 		return False
 
 		# Only chars and letters in the filename
 		file_name = re.sub(r'[^\w\.]', '', message['file_name'])
@@ -333,6 +354,28 @@ class ClientHandler(asyncio.Protocol):
 				return True
 
 		return False
+
+
+	def process_cc(self, message: str) -> None:
+		# check users public key
+		self.cc_cert = load_der_x509_certificate(base64.b64decode(message['cert'].encode()),default_backend())
+		self.pub_key = self.cc_cert.public_key()
+
+		# send him a nonce
+		self.challenge = str(datetime.now()) + str(random())
+		message = {'type':'CHALLENGE_CC','nonce':self.challenge}
+		self._send(message)
+
+		return True
+
+
+	def verify_signature(self, message: str) -> None:
+		self.pub_key.verify(bytes(base64.b64decode(message['signature'].encode())), self.challenge.encode(), padding.PKCS1v15(),	hashes.SHA1())
+		
+		## TODO: Verificar a validade do CC
+		self._send({'type':'OK'})
+		self.state = STATE_AUTH
+		return True		
 
 
 	def _send(self, message: str) -> None:

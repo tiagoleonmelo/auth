@@ -8,8 +8,8 @@ from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 from cryptography.hazmat.backends import default_backend
 from Crypto.Cipher import DES3
 from Crypto.Cipher import AES
-from Crypto.Cipher import ChaCha20
-from Crypto.Util.Padding import pad, unpad
+# from Crypto.Cipher import ChaCha20
+# from Crypto.Util.Padding import pad, unpad
 from Crypto.Random import get_random_bytes
 from cryptography.hazmat.primitives import hashes
 from Crypto.Hash import SHA256, SHA512

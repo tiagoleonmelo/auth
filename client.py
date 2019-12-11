@@ -17,6 +17,9 @@ from encrypt_decrypt_funcs import *
 from check_validity import *
 from cryptography.x509.oid import ExtensionOID, NameOID
 
+from PyKCS11 import *
+import binascii
+
 logger = logging.getLogger('root')
 
 STATE_CONNECT = 0       # Initial state, also assumed right after the server has been authenticated
@@ -26,6 +29,7 @@ STATE_CLOSE = 3         # Assumed state at the end of file transfer
 STATE_CHALLENGE = 4     # Assumed state when solving a challenge
 STATE_AUTH = 5          # Assumed state when authenticating Server
 STATE_ACCESS_REQ = 6    # Assumed state when Requesting Authentication via Password (Access List)
+STATE_CC_CHALLENGE = 7  # Assumed state when sending CC
 STATE_HANDSHAKE = 7     # Assumed state when "discussing" authentication methods with server
 
 USERNAME_PWD = 8
@@ -42,6 +46,29 @@ class ClientProtocol(asyncio.Protocol):
         :param file_name: Name of the file to send
         :param loop: Asyncio Loop to use
         """
+        lib = '/usr/local/lib/libpteidpkcs11.so'
+        pkcs11 = PyKCS11.PyKCS11Lib()
+        pkcs11.load(lib)
+        slots = pkcs11.getSlotList()
+
+        for slot in slots:
+            pass
+
+        all_attr = list(PyKCS11.CKA.keys())
+        #Filter attributes
+        all_attr = [e for e in all_attr if isinstance(e, int)]
+        self.session = pkcs11.openSession(slot)
+        
+        for obj in self.session.findObjects():
+            # Get object attributes
+            attr = self.session.getAttributeValue(obj, all_attr)
+            # Create dictionary with attributes
+            attr = dict(zip(map(PyKCS11.CKA.get, all_attr), attr))
+            #print(attr['CKA_CLASS'])
+            if attr['CKA_CERTIFICATE_TYPE']!=None:
+                self.cert=x509.load_der_x509_certificate((bytes(attr['CKA_VALUE'])),default_backend())
+                self.cert_der = bytes(attr['CKA_VALUE'])
+                break
 
         self.file_name = file_name
         self.loop = loop
@@ -50,7 +77,7 @@ class ClientProtocol(asyncio.Protocol):
 
         self.username = 'tiago'
         self.password = 'password'
-        self.auth_method = USERNAME_PWD
+        self.auth_method = CC
 
         with open("certs/ca_cert.pem", "rb") as ca:
             pem_data = ca.read()
@@ -136,9 +163,11 @@ class ClientProtocol(asyncio.Protocol):
                 if self.auth_method == USERNAME_PWD:
                     message = {'type':'ACCESS_REQ', 'user':'tiago'}
                 else:
-                    # TODO
-                    message = {'type':'CC', 'value':'idk'}
+                    print(self.state)
+                    message = {'type':'CC', 'bi':153705604, 'cert': base64.b64encode(self.cert_der).decode()}
                 self._send(message)
+            elif self.state == STATE_CC_CHALLENGE:
+                self.challenge()
             else:
                 logger.warning("Ignoring message from server")
             return
@@ -260,6 +289,27 @@ class ClientProtocol(asyncio.Protocol):
             self.state = STATE_OPEN
             return
 
+        
+        elif mtype == 'CHALLENGE_CC':
+            nonce = message['nonce']
+            # sign nonce
+            private_key = self.session.findObjects([
+            (PyKCS11.CKA_CLASS, PyKCS11.CKO_PRIVATE_KEY),
+            (PyKCS11.CKA_LABEL, 'CITIZEN AUTHENTICATION KEY')
+            ])[0]
+
+            mechanism = PyKCS11.Mechanism(PyKCS11.CKM_SHA1_RSA_PKCS, None)
+            signature = bytes(self.session.sign(private_key, nonce, mechanism))
+            # send signed nonce
+            message = {'type':'SIGNATURE', 'signature':base64.b64encode(signature).decode()}
+            
+            self.state = STATE_CHALLENGE
+            self._send(message)
+
+            # await for ok
+            return
+
+
         else:
             logger.warning("Invalid message type")
 
@@ -300,11 +350,10 @@ class ClientProtocol(asyncio.Protocol):
 
     
     def challenge(self):
-        self.value = str(datetime.now()) + str(random())
         message = {'type':'CERT_REQ'}
-
         self._send(message)
         self.state = STATE_AUTH
+
 
     def _send(self, message: str) -> None:
         """
