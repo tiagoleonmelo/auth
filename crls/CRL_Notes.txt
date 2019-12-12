@@ -1,0 +1,27 @@
+
+
+__________________________________________________ CC AUTHENTICATION
+
+A validação de cada uma das entidades pressupõe a análise da CRL associada a cada uma das CA's "acima" do certificado associado ao Cartão de Cidadão do cliente.
+
+	$ openssl x509 -noout -text -in BaltimoreCyberTrustRoot.pem | grep -A 4 'X509v3 CRL Distribution Points'
+	$ openssl x509 --text -in BaltimoreCyberTrustRoot.pem
+
+
+__________________________________________________ SERVER AUTHENTICATION
+
+
+Para validar a Certificate Revogation List da nossa CA, foi executado o seguinte comando no terminal:
+
+	$ openssl x509 -noout -text -in ca_cert.pem | grep -A 4 'X509v3 CRL Distribution Points'
+
+Idealmente, devolveria um URI a partir do qual poderiamos obter a CRL de forma a verificar se a CA se encontra lá presente. Contudo, não devolveu nenhum output.
+
+
+
+___________________________________________________ NOTES
+
+
+Foi transferida uma CRL da internet e convertida para PEM no ficheiro crl.pem. O que seria necessária agora fazer para uma correta validação de um certificado era concatenar a crl com a chain (num ficheiro, digamos, crl_chain.pem e executar o seguinte comando:
+
+	$ openssl verify -crl_check -CAfile crl_chain.pem certificado_a_validar.pem 
