@@ -46,29 +46,6 @@ class ClientProtocol(asyncio.Protocol):
         :param file_name: Name of the file to send
         :param loop: Asyncio Loop to use
         """
-        lib = '/usr/local/lib/libpteidpkcs11.so'
-        pkcs11 = PyKCS11.PyKCS11Lib()
-        pkcs11.load(lib)
-        slots = pkcs11.getSlotList()
-
-        for slot in slots:
-            pass
-
-        all_attr = list(PyKCS11.CKA.keys())
-        #Filter attributes
-        all_attr = [e for e in all_attr if isinstance(e, int)]
-        self.session = pkcs11.openSession(slot)
-        
-        for obj in self.session.findObjects():
-            # Get object attributes
-            attr = self.session.getAttributeValue(obj, all_attr)
-            # Create dictionary with attributes
-            attr = dict(zip(map(PyKCS11.CKA.get, all_attr), attr))
-            #print(attr['CKA_CLASS'])
-            if attr['CKA_CERTIFICATE_TYPE']!=None:
-                self.cert=x509.load_der_x509_certificate((bytes(attr['CKA_VALUE'])),default_backend())
-                self.cert_der = bytes(attr['CKA_VALUE'])
-                break
 
         self.file_name = file_name
         self.loop = loop
@@ -78,6 +55,32 @@ class ClientProtocol(asyncio.Protocol):
         self.username = 'tiago'
         self.password = 'password'
         self.auth_method = CC
+
+        if self.auth_method == CC:
+        
+            lib = '/usr/local/lib/libpteidpkcs11.so'
+            pkcs11 = PyKCS11.PyKCS11Lib()
+            pkcs11.load(lib)
+            slots = pkcs11.getSlotList()
+
+            for slot in slots:
+                pass
+
+            all_attr = list(PyKCS11.CKA.keys())
+            #Filter attributes
+            all_attr = [e for e in all_attr if isinstance(e, int)]
+            self.session = pkcs11.openSession(slot)
+            
+            for obj in self.session.findObjects():
+                # Get object attributes
+                attr = self.session.getAttributeValue(obj, all_attr)
+                # Create dictionary with attributes
+                attr = dict(zip(map(PyKCS11.CKA.get, all_attr), attr))
+                #print(attr['CKA_CLASS'])
+                if attr['CKA_CERTIFICATE_TYPE']!=None:
+                    self.cert=x509.load_der_x509_certificate((bytes(attr['CKA_VALUE'])),default_backend())
+                    self.cert_der = bytes(attr['CKA_VALUE'])
+                    break
 
         with open("certs/ca_cert.pem", "rb") as ca:
             pem_data = ca.read()

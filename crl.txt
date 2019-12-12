@@ -1,3 +1,22 @@
+__________________________________________________ CC AUTHENTICATION
+
+A validação de cada uma das entidades pressupõe a análise da CRL associada a cada uma das CA's "acima" do certificado associado ao Cartão de Cidadão do cliente.
+
+	$ openssl x509 -noout -text -in BaltimoreCyberTrustRoot.pem | grep -A 4 'X509v3 CRL Distribution Points'
+	$ openssl x509 --text -in BaltimoreCyberTrustRoot.pem
+
+
+
+
+
+
+
+
+
+
+__________________________________________________ SERVER AUTHENTICATION
+
+
 Para validar a Certificate Revogation List da nossa CA, foi executado o seguinte comando no terminal:
 
 	$ openssl x509 -noout -text -in ca_cert.pem | grep -A 4 'X509v3 CRL Distribution Points'

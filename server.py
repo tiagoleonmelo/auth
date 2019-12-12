@@ -22,6 +22,8 @@ from cryptography.x509 import load_der_x509_certificate
 
 from PyKCS11 import *
 import binascii
+from cryptography.x509.oid import NameOID
+from check_validity import *
 
 logger = logging.getLogger('root')
 
@@ -52,14 +54,30 @@ class ClientHandler(asyncio.Protocol):
 		self.buffer = ''
 		self.peername = ''
 		
+		# Dicionary {subject: cert}
+		self.cert_dict = {}
+
+		# Load every known certificate to a certificate dictionary
+		certs = os.scandir("/home/tiago/UA/SIO/auth/PTEID/pem")
+
+		for c in certs:
+			with open(c, "rb") as rf:
+				cert_data = rf.read()
+
+			cert = x509.load_pem_x509_certificate(cert_data, default_backend())
+			# Were only gonna add valid certificates to our Cert dict
+			if cert.not_valid_before < datetime.now() < cert.not_valid_after:
+				self.cert_dict[cert.subject.rfc4514_string()] = cert
+
+		logger.debug(self.cert_dict.keys())
+
 
 		# user : hashed_user_password
 		self.hashed_list = {'tiago':'b109f3bbbc244eb82441917ed06d618b9008dd09b3befd1b5e07394c706a8bb980b1d7785e5976ec049b46df5f1326af5a2ea6d103fd07c95385ffab0cacbc86'}
 		# access list that contains the usernames allowed to interact with the system
 		self.access_list = ['tiago']
 		# access list that contains allowed citizens
-		self.cc_al = [153705604]
-		self.cc_public_key = {153705604:'publickey'}
+		self.cc_al = ["CNIBI153705604"]
 		self.cc_cert = ''
 
 		c = open("certs/server_cert.pem", "rb")
@@ -190,11 +208,11 @@ class ClientHandler(asyncio.Protocol):
 				logger.error("Permission denied - User %s not in access list; can't transfer files" % self.username)
 				return False
 
-		# else:
+		else:
 
-		# 	if self.cc_cert.bi_num not in self.cc_al:
-		# 		logger.error("Permission denied - Citizen no %s not in access list; can't transfer files" % self.cc_cert.bi_num)
-		# 		return False
+			if self.cc_cert.subject.get_attributes_for_oid(NameOID.SERIAL_NUMBER)[0].value not in self.cc_al:
+				logger.error("Permission denied - Citizen no %s not in access list; can't transfer files" % self.cc_cert.subject.get_attributes_for_oid(NameOID.SERIAL_NUMBER)[0].value)
+				return False
 
 		# Only chars and letters in the filename
 		file_name = re.sub(r'[^\w\.]', '', message['file_name'])
@@ -370,12 +388,57 @@ class ClientHandler(asyncio.Protocol):
 
 
 	def verify_signature(self, message: str) -> None:
+
+		# Verifying signature
 		self.pub_key.verify(bytes(base64.b64decode(message['signature'].encode())), self.challenge.encode(), padding.PKCS1v15(),	hashes.SHA1())
 		
-		## TODO: Verificar a validade do CC
+		# Check current date
+		start = self.cc_cert.not_valid_before
+		end = self.cc_cert.not_valid_after
+		curr = datetime.now()
+
+		if not start < curr < end:
+			logger.error("Citizenship card isn't valid given the current date.")
+			return False
+
+		# Fetch chain
+		if not self.cert_chain(self.cc_cert):
+			logger.error("Invalid certification chain")
+			return False
+
+		logger.debug("Client Certification Chain: " + str(self.cert_chain(self.cc_cert)))
+
 		self._send({'type':'OK'})
 		self.state = STATE_AUTH
 		return True		
+
+
+	def cert_chain(self, certificate, chain=[]):
+		chain.append(certificate)
+
+		issuer = certificate.issuer.rfc4514_string()
+		subject = certificate.subject.rfc4514_string()
+
+
+		if issuer == subject: # and subject in self.cert_dict.keys():
+			return chain
+		
+		if issuer in self.cert_dict.keys():
+			print(issuer)
+			 ## Check cert signature
+			issuer_public_key = load_pem_public_key(self.cert_dict[issuer].public_key().public_bytes(Encoding.PEM, PublicFormat.SubjectPublicKeyInfo), default_backend())
+			issuer_public_key.verify(
+				certificate.signature,
+				certificate.tbs_certificate_bytes,
+				# Depends on the algorithm used to create the certificate
+				padding.PKCS1v15(),
+				certificate.signature_hash_algorithm,
+			)
+			return self.cert_chain(self.cert_dict[issuer], chain)
+
+		print(issuer, subject)
+
+		return []
 
 
 	def _send(self, message: str) -> None:
@@ -388,6 +451,8 @@ class ClientHandler(asyncio.Protocol):
 
 		message_b = (json.dumps(message) + '\r\n').encode()
 		self.transport.write(message_b)
+
+	
 
 def main():
 	global storage_dir
@@ -421,7 +486,6 @@ def main():
 
 	logger.info("Port: {} LogLevel: {} Storage: {}".format(port, level, storage_dir))
 	tcp_server(ClientHandler, worker=2, port=port, reuse_port=True)
-
 
 if __name__ == '__main__':
 	main()

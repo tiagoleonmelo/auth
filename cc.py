@@ -2,6 +2,7 @@ from PyKCS11 import *
 import binascii
 from cryptography import x509
 from cryptography.hazmat.backends import default_backend
+from cryptography.x509.oid import ExtensionOID, NameOID
 
 lib = '/usr/local/lib/libpteidpkcs11.so'
 pkcs11 = PyKCS11.PyKCS11Lib()
@@ -25,7 +26,7 @@ for obj in session.findObjects():
     if attr['CKA_CERTIFICATE_TYPE']!=None:
         cert=x509.load_der_x509_certificate((bytes(attr['CKA_VALUE'])),default_backend())
         #print('Label: ', attr['CKA_LABEL'],cert)
-        print(cert.subject)
+        print(cert.subject.get_attributes_for_oid(NameOID.SERIAL_NUMBER)[0].value)
         print(cert.issuer)
 
 
